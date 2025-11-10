@@ -25,7 +25,7 @@ def print_color(text, color=Style.RESET, bold=False):
 # ==============================================================================
 
 def run_command(command, description, check=True):
-    """執行一個 shell 命令並即時顯示其輸出"""
+    """執行一個 shell 命令並即時顯示其輸出，失敗時拋出例外"""
     print_color(f"\n>> {description}", Style.CYAN, bold=True)
     try:
         with subprocess.Popen(
@@ -53,23 +53,23 @@ def run_command(command, description, check=True):
                     print(stripped_line)
             
             print()
-            process.wait()
+            return_code = process.wait()
 
-        if check and process.returncode != 0:
-            raise subprocess.CalledProcessError(process.returncode, command)
+        if check and return_code != 0:
+            raise subprocess.CalledProcessError(return_code, command)
         
         print_color(f"✓ {description.split('...')[0]} 成功完成。", Style.GREEN)
         return True
         
     except FileNotFoundError:
         print_color(f"✗ 錯誤：找不到命令，請確保相關程式已安裝並在 PATH 環境變數中。", Style.RED, bold=True)
-        return False
+        raise
     except subprocess.CalledProcessError as e:
         print_color(f"✗ 錯誤：'{description}' 執行失敗，返回碼 {e.returncode}。", Style.RED, bold=True)
-        sys.exit(1) # 嚴重錯誤，終止腳本
+        raise e
     except Exception as e:
         print_color(f"✗ 發生未知錯誤：{e}", Style.RED, bold=True)
-        sys.exit(1)
+        raise e
 def command_exists(command):
     """檢查指定的命令是否存在於系統 PATH 中"""
     return subprocess.run(f"where {command}", shell=True, capture_output=True).returncode == 0
@@ -100,55 +100,71 @@ def main():
     print_color("- Node.js (LTS 長期支援版)")
     print_color("- Google Gemini CLI")
 
-    # --- 1. 安裝 Chocolatey ---
-    if not command_exists("choco"):
-        print_color("\n>> Chocolatey 未安裝，開始自動安裝...", Style.YELLOW, bold=True)
-        print_color("這一步會花費一點時間下載並設定，請耐心等候...", Style.YELLOW)
-        ps_command = "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
-        run_command(f'powershell -Command "{ps_command}"', "安裝 Chocolatey 套件管理器...")
-        # 安裝後需要刷新環境
-        refresh_environment()
-    else:
-        print_color("\n✓ Chocolatey 已安裝。", Style.GREEN)
+    try:
+        # --- 1. 安裝 Chocolatey ---
+        if not command_exists("choco"):
+            print_color("\n>> Chocolatey 未安裝，開始自動安裝...", Style.YELLOW, bold=True)
+            print_color("這一步會花費一點時間下載並設定，請耐心等候...", Style.YELLOW)
+            ps_command = "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
+            run_command(f'powershell -Command "{ps_command}"', "安裝 Chocolatey 套件管理器...")
+            refresh_environment()
+        else:
+            print_color("\n✓ Chocolatey 已安裝。", Style.GREEN)
 
-    # --- 2. 檢查 Python ---
-    if not command_exists("python"):
-        print_color("正在準備安裝 Python，過程可能需要數分鐘...", Style.YELLOW)
-        run_command("choco install python -y", "安裝 Python...")
-    else:
-        print_color("\n✓ Python 已安裝。", Style.GREEN)
+        # --- 2. 檢查 Python ---
+        if not command_exists("python"):
+            print_color("正在準備安裝 Python，過程可能需要數分鐘...", Style.YELLOW)
+            run_command("choco install python -y", "安裝 Python...")
+        else:
+            print_color("\n✓ Python 已安裝。", Style.GREEN)
 
-    # --- 3. 安裝或更新 NVM for Windows ---
-    if not command_exists("nvm"):
-        run_command("choco install nvm -y", "安裝 NVM for Windows...")
-        # NVM 安裝後極度建議重開 shell，但我們先嘗試刷新
-        refresh_environment()
-    else:
-        print_color("\n✓ NVM for Windows 已安裝，檢查更新...", Style.GREEN)
-        run_command("choco upgrade nvm -y", "更新 NVM for Windows...")
+        # --- 3. 安裝或更新 NVM for Windows ---
+        if not command_exists("nvm"):
+            run_command("choco install nvm -y", "安裝 NVM for Windows...")
+            refresh_environment()
+        else:
+            print_color("\n✓ NVM for Windows 已安裝，檢查更新...", Style.GREEN)
+            run_command("choco upgrade nvm -y", "更新 NVM for Windows...")
 
-    # --- 4. 安裝 Node.js LTS 並使用它 ---
-    print_color("\n>> 正在檢查 Node.js LTS 版本...", Style.CYAN, bold=True)
-    # NVM 的命令需要特殊處理，因為它不是一個直接的執行檔，而是一個批次腳本
-    # 我們需要確保 nvm 的路徑在環境中
-    nvm_root = os.environ.get("NVM_HOME", os.path.join(os.environ["ProgramFiles"], "nvm"))
-    nvm_exe = f'"{os.path.join(nvm_root, "nvm.exe")}"' # 確保路徑有引號
+        # --- 4. 安裝 Node.js LTS 並使用它 ---
+        print_color("\n>> 正在檢查 Node.js LTS 版本...", Style.CYAN, bold=True)
+        nvm_root = os.environ.get("NVM_HOME", os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "nvm"))
+        nvm_exe = f'"{os.path.join(nvm_root, "nvm.exe")}"'
 
-    if not os.path.exists(nvm_exe.strip('"')):
-        print_color(f"✗ 錯誤：在 {nvm_root} 找不到 nvm.exe。請檢查 NVM 是否安裝成功。", Style.RED, bold=True)
+        if not os.path.exists(nvm_exe.strip('"')):
+            print_color(f"✗ 嚴重錯誤：在 {nvm_root} 找不到 nvm.exe。", Style.RED, bold=True)
+            print_color("  請檢查 NVM for Windows 是否已成功安裝，或手動設定 NVM_HOME 環境變數。", Style.YELLOW)
+            sys.exit(1)
+
+        print_color("正在下載並安裝 Node.js，這是最耗時的步驟，可能需要5-10分鐘，請務必耐心等候...", Style.YELLOW)
+        run_command(f"{nvm_exe} install lts", "檢查、安裝或更新 Node.js 至最新 LTS 版本...")
+        run_command(f"{nvm_exe} use lts", "啟用 Node.js LTS 版本...")
+
+        # --- 5. 安裝或更新 Gemini CLI ---
+        print_color("\n>> 正在安裝或更新 Gemini CLI...", Style.CYAN, bold=True)
+        try:
+            if not command_exists("gemini"):
+                print_color("正在從網路安裝 Gemini CLI，請稍候...", Style.YELLOW)
+                run_command("npm install -g @google/gemini-cli", "透過 npm 安裝 Google Gemini CLI...")
+            else:
+                print_color("Google Gemini CLI 已安裝，檢查更新...", Style.GREEN)
+                run_command("npm update -g @google/gemini-cli", "更新 Google Gemini CLI...")
+        except subprocess.CalledProcessError:
+            print_color("✗ Gemini CLI 安裝/更新失敗。", Style.RED, bold=True)
+            print_color("  這通常是 npm 的問題。請嘗試在一個新的系統管理員終端機中執行以下指令來清理快取：", Style.YELLOW)
+            print_color("  npm cache clean --force", Style.CYAN)
+            print_color("  然後再重新執行本安裝腳本。", Style.YELLOW)
+            sys.exit(1)
+
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # 捕獲由 run_command 拋出的任何其他錯誤
+        print_color("\n安裝過程中發生嚴重錯誤，腳本已終止。", Style.RED, bold=True)
+        print_color("請檢查上方的錯誤訊息以了解詳情。", Style.YELLOW)
+        sys.exit(1)
+    except Exception as e:
+        print_color(f"\n發生未預期的嚴重錯誤: {e}", Style.RED, bold=True)
         sys.exit(1)
 
-    print_color("正在下載並安裝 Node.js，這是最耗時的步驟，可能需要5-10分鐘，請務必耐心等候...", Style.YELLOW)
-    run_command(f"{nvm_exe} install lts", "檢查、安裝或更新 Node.js 至最新 LTS 版本...")
-    run_command(f"{nvm_exe} use lts", "啟用 Node.js LTS 版本...")
-
-    # --- 5. 安裝或更新 Gemini CLI ---
-    if not command_exists("gemini"):
-        print_color("正在從網路安裝 Gemini CLI，請稍候...", Style.YELLOW)
-        run_command("npm install -g @google/gemini-cli", "透過 npm 安裝 Google Gemini CLI...")
-    else:
-        print_color("\n✓ Google Gemini CLI 已安裝，檢查更新...", Style.GREEN)
-        run_command("npm update -g @google/gemini-cli", "更新 Google Gemini CLI...")
 
     # --- 最終說明 ---
     print_color("\n=======================================================================", Style.GREEN, bold=True)
